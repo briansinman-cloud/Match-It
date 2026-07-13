@@ -101,11 +101,11 @@ th{color:var(--muted)}
       <div class="mode-grid">
         <button id="dailyBtn" class="mode-btn daily">
           <strong>🌎 Daily Challenge</strong>
-          <span>Everyone plays the same image and target. Five chances. Earn a 9 or 10 to win.</span>
+          <span>Everyone restores the same altered image to its clean target. Five chances. Earn a 9 or 10 to win.</span>
         </button>
         <button id="sandboxBtn" class="mode-btn">
           <strong>🧪 Sandbox Mode</strong>
-          <span>Upload any image and practice locally with a randomly created target.</span>
+          <span>Upload any image and restore a randomly altered version back to the original.</span>
         </button>
       </div>
       <div id="uploadArea" class="upload-area">
@@ -138,7 +138,7 @@ th{color:var(--muted)}
         <div class="image-label target">TARGET</div>
         <div id="previewCountdown" class="preview-countdown"></div>
         <canvas id="target" width="700" height="700"></canvas>
-        <div class="target-cover">Target hidden.<br>Match it from memory.</div>
+        <div class="target-cover">Target hidden.<br>Restore it from memory.</div>
       </div>
     </div>
 
@@ -146,7 +146,7 @@ th{color:var(--muted)}
       <div id="controls" class="controls"></div>
       <div class="actions">
         <button id="submitBtn" class="btn yellow">Submit Edit</button>
-        <button id="resetBtn" class="btn secondary">Reset Sliders</button>
+        <button id="resetBtn" class="btn secondary">Reset to Starting Image</button>
         <button id="peekBtn" class="btn secondary" style="grid-column:1/-1">View Target — Costs 1 Attempt</button>
       </div>
       <div id="status" class="status">Adjust the sliders, then submit your edit.</div>
@@ -195,6 +195,7 @@ let mode="daily";
 let selectedImageData="";
 let gameImage=null;
 let targetValues={};
+let startingValues=neutralValues();
 let tries=0;
 let scores=[];
 let bestScore=0;
@@ -218,15 +219,19 @@ function dateSeed(dateText){
   return Number(`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`);
 }
 
-function makeTarget(seed=Math.random()*999999){
+function makeStartingValues(seed=Math.random()*999999){
   const r=n=>seededRandom(seed+n);
+  const signed=(n,min,max)=>{
+    const amount=Math.round(min+r(n)*(max-min));
+    return r(n+20)<.5?-amount:amount;
+  };
   return {
-    hue:Math.round(-32+r(1)*64),
-    saturation:Math.round(80+r(2)*70),
-    brightness:Math.round(82+r(3)*38),
-    contrast:Math.round(80+r(4)*42),
-    warmth:Math.round(-20+r(5)*40),
-    mist:Math.round(r(6)*16)
+    hue:signed(1,18,55),
+    saturation:r(2)<.5?Math.round(45+r(3)*30):Math.round(135+r(3)*35),
+    brightness:r(4)<.5?Math.round(58+r(5)*24):Math.round(120+r(5)*22),
+    contrast:r(6)<.5?Math.round(58+r(7)*24):Math.round(120+r(7)*22),
+    warmth:signed(8,12,34),
+    mist:Math.round(10+r(9)*20)
   };
 }
 
@@ -329,7 +334,7 @@ function updateHistory(){
 
 function resetGameState(){
   clearInterval(previewTimer);
-  tries=0;scores=[];bestScore=0;bestValues=neutralValues();
+  tries=0;scores=[];bestScore=0;bestValues={...startingValues};
   targetVisible=false;
   document.getElementById("attempt").textContent="1";
   document.getElementById("history").innerHTML="";
@@ -338,7 +343,7 @@ function resetGameState(){
   document.getElementById("peekBtn").disabled=true;
   document.getElementById("targetCard").classList.remove("hidden");
   document.getElementById("previewCountdown").textContent="";
-  document.getElementById("status").textContent="Study the target before it disappears.";
+  document.getElementById("status").textContent="Study the clean target before it disappears.";
 }
 
 
@@ -362,7 +367,7 @@ function beginTargetPreview(seconds=8){
   document.getElementById("targetCard").classList.remove("hidden");
   let remaining=seconds;
   document.getElementById("previewCountdown").textContent=`${remaining}s`;
-  document.getElementById("status").textContent="Study the target. Editing begins when it disappears.";
+  document.getElementById("status").textContent="Study the clean target. Then undo every adjustment from the starting image.";
   previewTimer=setInterval(()=>{
     remaining--;
     document.getElementById("previewCountdown").textContent=remaining>0?`${remaining}s`:"";
@@ -372,7 +377,7 @@ function beginTargetPreview(seconds=8){
       setControlsDisabled(false);
       document.getElementById("submitBtn").disabled=false;
       document.getElementById("peekBtn").disabled=false;
-      document.getElementById("status").textContent="Target hidden — adjust the sliders, then submit your edit.";
+      document.getElementById("status").textContent="Target hidden — use every slider to restore the clean target.";
     }
   },1000);
 }
@@ -403,9 +408,11 @@ function showTargetPeek(){
 }
 
 function startWithImage(src){
+  const seed=mode==="daily"?dateSeed(window.MATCH_IT_DAILY && window.MATCH_IT_DAILY.date):Math.random()*999999;
+  targetValues=neutralValues();
+  startingValues=makeStartingValues(seed);
   resetGameState();
-  targetValues=makeTarget(mode==="daily"?dateSeed(window.MATCH_IT_DAILY && window.MATCH_IT_DAILY.date):Math.random()*999999);
-  setValues(neutralValues());
+  setValues(startingValues);
   gameImage=new Image();
   gameImage.onload=()=>{
     renderPlayer();renderTarget();
@@ -477,7 +484,7 @@ document.getElementById("upload").addEventListener("change",e=>{
 });
 
 document.getElementById("startSandboxBtn").onclick=()=>startWithImage(selectedImageData);
-document.getElementById("resetBtn").onclick=()=>setValues(neutralValues());
+document.getElementById("resetBtn").onclick=()=>setValues(startingValues);
 document.getElementById("peekBtn").onclick=()=>{
   if(targetVisible||tries>=5)return;
   tries++;
