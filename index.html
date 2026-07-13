@@ -44,6 +44,10 @@ button{touch-action:manipulation}
 .pill{padding:8px 11px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:13px;font-weight:800}
 .image-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .image-card{position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--line);background:#020711}
+.target-card.hidden canvas{visibility:hidden}
+.target-cover{display:none;position:absolute;inset:0;z-index:3;align-items:center;justify-content:center;text-align:center;padding:24px;background:linear-gradient(145deg,#071326,#102746);font-size:22px;font-weight:950;color:var(--muted)}
+.target-card.hidden .target-cover{display:flex}
+.preview-countdown{position:absolute;right:10px;top:10px;z-index:4;padding:7px 11px;border-radius:999px;background:rgba(0,0,0,.78);font-weight:950;color:var(--yellow)}
 .image-label{position:absolute;z-index:2;top:10px;left:10px;padding:7px 11px;border-radius:999px;background:rgba(0,0,0,.76);font-size:11px;font-weight:900;letter-spacing:.08em}
 .image-label.target{background:rgba(24,215,91,.92);color:#06130b}
 canvas{display:block;width:100%;aspect-ratio:1/1}
@@ -130,9 +134,11 @@ th{color:var(--muted)}
         <div class="image-label">YOUR EDIT</div>
         <canvas id="player" width="700" height="700"></canvas>
       </div>
-      <div class="image-card">
+      <div id="targetCard" class="image-card target-card">
         <div class="image-label target">TARGET</div>
+        <div id="previewCountdown" class="preview-countdown"></div>
         <canvas id="target" width="700" height="700"></canvas>
+        <div class="target-cover">Target hidden.<br>Match it from memory.</div>
       </div>
     </div>
 
@@ -141,6 +147,7 @@ th{color:var(--muted)}
       <div class="actions">
         <button id="submitBtn" class="btn yellow">Submit Edit</button>
         <button id="resetBtn" class="btn secondary">Reset Sliders</button>
+        <button id="peekBtn" class="btn secondary" style="grid-column:1/-1">View Target — Costs 1 Attempt</button>
       </div>
       <div id="status" class="status">Adjust the sliders, then submit your edit.</div>
       <div id="history" class="history"></div>
@@ -191,7 +198,9 @@ let targetValues={};
 let tries=0;
 let scores=[];
 let bestScore=0;
-let bestValues={};
+let bestValues=neutralValues();
+let previewTimer=null;
+let targetVisible=false;
 
 function showScreen(id){
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
@@ -319,12 +328,78 @@ function updateHistory(){
 }
 
 function resetGameState(){
-  tries=0;scores=[];bestScore=0;bestValues={};
+  clearInterval(previewTimer);
+  tries=0;scores=[];bestScore=0;bestValues=neutralValues();
+  targetVisible=false;
   document.getElementById("attempt").textContent="1";
   document.getElementById("history").innerHTML="";
   document.getElementById("results").style.display="none";
-  document.getElementById("submitBtn").disabled=false;
-  document.getElementById("status").textContent="Adjust the sliders, then submit your edit.";
+  document.getElementById("submitBtn").disabled=true;
+  document.getElementById("peekBtn").disabled=true;
+  document.getElementById("targetCard").classList.remove("hidden");
+  document.getElementById("previewCountdown").textContent="";
+  document.getElementById("status").textContent="Study the target before it disappears.";
+}
+
+
+function setControlsDisabled(disabled){
+  defs.forEach(d=>document.getElementById(d.id).disabled=disabled);
+  document.getElementById("resetBtn").disabled=disabled;
+}
+
+function hideTarget(){
+  targetVisible=false;
+  document.getElementById("targetCard").classList.add("hidden");
+  document.getElementById("previewCountdown").textContent="";
+}
+
+function beginTargetPreview(seconds=8){
+  clearInterval(previewTimer);
+  targetVisible=true;
+  setControlsDisabled(true);
+  document.getElementById("submitBtn").disabled=true;
+  document.getElementById("peekBtn").disabled=true;
+  document.getElementById("targetCard").classList.remove("hidden");
+  let remaining=seconds;
+  document.getElementById("previewCountdown").textContent=`${remaining}s`;
+  document.getElementById("status").textContent="Study the target. Editing begins when it disappears.";
+  previewTimer=setInterval(()=>{
+    remaining--;
+    document.getElementById("previewCountdown").textContent=remaining>0?`${remaining}s`:"";
+    if(remaining<=0){
+      clearInterval(previewTimer);
+      hideTarget();
+      setControlsDisabled(false);
+      document.getElementById("submitBtn").disabled=false;
+      document.getElementById("peekBtn").disabled=false;
+      document.getElementById("status").textContent="Target hidden — adjust the sliders, then submit your edit.";
+    }
+  },1000);
+}
+
+function showTargetPeek(){
+  targetVisible=true;
+  document.getElementById("targetCard").classList.remove("hidden");
+  document.getElementById("previewCountdown").textContent="3s";
+  setControlsDisabled(true);
+  document.getElementById("submitBtn").disabled=true;
+  document.getElementById("peekBtn").disabled=true;
+  let remaining=3;
+  clearInterval(previewTimer);
+  previewTimer=setInterval(()=>{
+    remaining--;
+    document.getElementById("previewCountdown").textContent=remaining>0?`${remaining}s`:"";
+    if(remaining<=0){
+      clearInterval(previewTimer);
+      hideTarget();
+      setControlsDisabled(false);
+      if(tries<5){
+        document.getElementById("submitBtn").disabled=false;
+        document.getElementById("peekBtn").disabled=false;
+        document.getElementById("status").textContent="Target hidden again. Make this attempt count.";
+      }
+    }
+  },1000);
 }
 
 function startWithImage(src){
@@ -336,6 +411,7 @@ function startWithImage(src){
     renderPlayer();renderTarget();
     document.getElementById("modeLabel").textContent=mode==="daily"?"Daily Challenge":"Sandbox Mode";
     showScreen("gameScreen");
+    beginTargetPreview(8);
   };
   gameImage.onerror=()=>alert("The game image could not be loaded.");
   gameImage.src=src;
@@ -402,10 +478,21 @@ document.getElementById("upload").addEventListener("change",e=>{
 
 document.getElementById("startSandboxBtn").onclick=()=>startWithImage(selectedImageData);
 document.getElementById("resetBtn").onclick=()=>setValues(neutralValues());
+document.getElementById("peekBtn").onclick=()=>{
+  if(targetVisible||tries>=5)return;
+  tries++;
+  document.getElementById("attempt").textContent=String(Math.min(tries+1,5));
+  document.getElementById("status").textContent="Target peek used one attempt.";
+  if(tries>=5){
+    showResults();
+    return;
+  }
+  showTargetPeek();
+};
 document.getElementById("againBtn").onclick=()=>mode==="daily"?startDaily():startWithImage(selectedImageData);
 
 document.getElementById("submitBtn").onclick=()=>{
-  if(tries>=5)return;
+  if(tries>=5||targetVisible)return;
   const v=currentValues();
   const s=score(v);
   tries++;
