@@ -9,7 +9,7 @@
 :root{
   --bg:#061126;--panel:#0c1a2c;--panel2:#101f34;--line:#29415f;
   --text:#fff;--muted:#b8c7da;--blue:#2476ff;--blue2:#55a1ff;
-  --yellow:#ffd21f;--green:#18d75b;--red:#ff4b55
+  --yellow:#ffd21f;--orange:#ff8a1f;--green:#18d75b;--red:#ff4b55
 }
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:radial-gradient(circle at top,#10294e 0,var(--bg) 58%);color:var(--text);font-family:Arial,Helvetica,sans-serif}
@@ -66,6 +66,13 @@ input[type=range]{display:block;width:100%;margin:8px 0 0;accent-color:var(--blu
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:8px 5px;text-align:center;border-bottom:1px solid var(--line);text-transform:capitalize}
 th{color:var(--muted)}
+.feedback-badge{display:inline-flex;align-items:center;justify-content:center;min-width:150px;padding:9px 14px;border-radius:999px;font-weight:950;letter-spacing:.03em;color:#07111f}
+.feedback-great{background:var(--green)}
+.feedback-good{background:var(--orange)}
+.feedback-okay{background:var(--yellow)}
+.feedback-practice{background:var(--red);color:#fff}
+.feedback-key{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.feedback-key span{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:900;color:#07111f}
 .note{text-align:center;color:var(--muted);font-size:12px;margin-top:12px}
 @media(max-width:700px){
   .shell{padding:8px}
@@ -145,8 +152,14 @@ th{color:var(--muted)}
     <div id="results" class="card">
       <h2 id="bestScore">0%</h2>
       <div id="resultMessage" class="result-message"></div>
+      <div class="feedback-key" aria-label="Feedback color key">
+        <span class="feedback-great">Green · Great</span>
+        <span class="feedback-good">Orange · Good</span>
+        <span class="feedback-okay">Yellow · Okay</span>
+        <span class="feedback-practice">Red · Keep Practicing</span>
+      </div>
       <table>
-        <thead><tr><th>Setting</th><th>Your Best</th><th>Target</th></tr></thead>
+        <thead><tr><th>Setting</th><th>How Close?</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
       <div class="actions">
@@ -331,6 +344,15 @@ function startDaily(){
   alert("No daily challenge file was found. Upload daily-challenge.js beside index.html.");
 }
 
+function settingFeedback(d){
+  const range=d.max-d.min;
+  const closeness=Math.max(0,1-Math.abs(bestValues[d.id]-targetValues[d.id])/range)*100;
+  if(closeness>=90)return {label:"Great",className:"feedback-great"};
+  if(closeness>=75)return {label:"Good",className:"feedback-good"};
+  if(closeness>=55)return {label:"Okay",className:"feedback-okay"};
+  return {label:"Keep Practicing",className:"feedback-practice"};
+}
+
 function showResults(){
   const winner=bestScore>=90;
   document.getElementById("bestScore").textContent=(winner?"🏆 WINNER! ":"")+bestScore+"%";
@@ -339,8 +361,10 @@ function showResults(){
   msg.textContent=winner
     ? `You matched the target in ${tries} chance${tries===1?"":"s"}!`
     : "Five chances used. Try again and aim for 90%.";
-  document.getElementById("rows").innerHTML=defs.map(d=>`
-    <tr><td>${d.name}</td><td>${bestValues[d.id]}${d.unit}</td><td>${targetValues[d.id]}${d.unit}</td></tr>`).join("");
+  document.getElementById("rows").innerHTML=defs.map(d=>{
+    const feedback=settingFeedback(d);
+    return `<tr><td>${d.name}</td><td><span class="feedback-badge ${feedback.className}">${feedback.label}</span></td></tr>`;
+  }).join("");
   document.getElementById("results").style.display="block";
   document.getElementById("submitBtn").disabled=true;
   document.getElementById("results").scrollIntoView({behavior:"smooth"});
