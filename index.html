@@ -226,12 +226,13 @@ function makeStartingValues(seed=Math.random()*999999){
     return r(n+20)<.5?-amount:amount;
   };
   return {
-    hue:signed(1,18,55),
-    saturation:r(2)<.5?Math.round(45+r(3)*30):Math.round(135+r(3)*35),
-    brightness:r(4)<.5?Math.round(58+r(5)*24):Math.round(120+r(5)*22),
-    contrast:r(6)<.5?Math.round(58+r(7)*24):Math.round(120+r(7)*22),
-    warmth:signed(8,12,34),
-    mist:Math.round(10+r(9)*20)
+    // Start with a deliberately dramatic transformation so every control matters.
+    hue:signed(1,48,85),
+    saturation:r(2)<.5?Math.round(40+r(3)*20):Math.round(160+r(3)*20),
+    brightness:r(4)<.5?Math.round(55+r(5)*15):Math.round(132+r(5)*13),
+    contrast:r(6)<.5?Math.round(55+r(7)*15):Math.round(132+r(7)*13),
+    warmth:signed(8,28,40),
+    mist:Math.round(24+r(9)*11)
   };
 }
 
