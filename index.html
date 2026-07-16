@@ -60,7 +60,12 @@ canvas{display:block;width:100%;aspect-ratio:1/1}
 .control-result.correct{background:rgba(24,215,91,.18);color:var(--green);box-shadow:inset 0 0 0 1px rgba(24,215,91,.55)}
 .control-result.wrong{background:rgba(255,75,85,.18);color:var(--red);box-shadow:inset 0 0 0 1px rgba(255,75,85,.55)}
 .value{color:var(--yellow)}
-input[type=range]{display:block;width:100%;margin:8px 0 0;accent-color:var(--blue)}
+.range-wrap{position:relative;margin-top:8px;height:20px;display:flex;align-items:center}
+input[type=range]{position:relative;z-index:2;display:block;width:100%;margin:0;accent-color:var(--blue);background:transparent}
+.attempt-dots{position:absolute;z-index:3;left:8px;right:8px;top:50%;height:0;pointer-events:none}
+.attempt-dot{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--yellow);border:1px solid #5f4b00;box-shadow:0 0 0 2px rgba(255,210,31,.22);transform:translate(-50%,-50%)}
+.control.locked{outline:1px solid rgba(24,215,91,.5);background:rgba(24,215,91,.07)}
+.control.locked input[type=range]{accent-color:var(--green);cursor:not-allowed;opacity:.82}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
 .status{text-align:center;color:var(--muted);margin-top:9px;font-weight:800}
 .history{display:grid;gap:6px;margin-top:9px}
@@ -175,7 +180,7 @@ th{color:var(--muted)}
         <button id="againBtn" class="btn">Play Again</button>
         <button id="changeModeBtn" class="btn secondary">Change Mode</button>
       </div>
-      <div class="note">A rating of 9 or 10 is a win.</div>
+      <div class="note">5 or 6 correct adjustments is a win.</div>
     </div>
   </div>
 </section>
@@ -204,7 +209,11 @@ let targetValues={};
 let startingValues=neutralValues();
 let tries=0;
 let scores=[];
+let correctCounts=[];
+let attemptValues=[];
+let lockedSettings={};
 let bestScore=0;
+let bestCorrectCount=0;
 let bestValues=neutralValues();
 let previewTimer=null;
 let targetVisible=false;
@@ -248,7 +257,10 @@ function buildControls(){
   wrap.innerHTML=defs.map(d=>`
     <label class="control">
       <div class="control-head"><span>${d.name}</span><span style="display:flex;align-items:center;gap:8px"><span id="${d.id}Value" class="value"></span><span id="${d.id}Result" class="control-result" aria-label="Not checked yet">?</span></span></div>
-      <input id="${d.id}" type="range" min="${d.min}" max="${d.max}" step="${d.step}">
+      <div class="range-wrap">
+        <input id="${d.id}" type="range" min="${d.min}" max="${d.max}" step="${d.step}">
+        <div id="${d.id}Dots" class="attempt-dots" aria-hidden="true"></div>
+      </div>
     </label>`).join("");
   defs.forEach(d=>{
     const el=document.getElementById(d.id);
@@ -320,8 +332,16 @@ function score(values){
   return Math.round(total/defs.length*100);
 }
 
+function ratingFromCorrectCount(count){
+  return [1,2,4,6,8,9,10][Math.max(0,Math.min(6,count))];
+}
+
 function ratingFromScore(score){
   return Math.max(1,Math.min(10,Math.ceil(score/10)));
+}
+
+function countCorrectSettings(values){
+  return defs.filter(d=>isSettingCorrect(d,values)).length;
 }
 
 function ratingColor(rating){
@@ -330,12 +350,12 @@ function ratingColor(rating){
 }
 
 function updateHistory(){
-  document.getElementById("history").innerHTML=scores.map((s,i)=>{
-    const rating=ratingFromScore(s);
+  document.getElementById("history").innerHTML=correctCounts.map((count,i)=>{
+    const rating=ratingFromCorrectCount(count);
     return `<div class="try">
       <strong>Try ${i+1}</strong>
       <div class="bar"><div class="fill" style="width:${rating*10}%;background:${ratingColor(rating)}"></div></div>
-      <span class="rating-badge" style="background:${ratingColor(rating)}">${rating}/10</span>
+      <span class="rating-badge" style="background:${ratingColor(rating)}">${count}/6</span>
     </div>`;
   }).join("");
 }
@@ -343,6 +363,26 @@ function updateHistory(){
 function isSettingCorrect(d,values){
   const tolerance=Math.max(d.step,(d.max-d.min)*0.05);
   return Math.abs(values[d.id]-targetValues[d.id])<=tolerance;
+}
+
+function updateAttemptDots(){
+  defs.forEach(d=>{
+    const dots=document.getElementById(d.id+"Dots");
+    dots.innerHTML=attemptValues.map(values=>{
+      const pct=(values[d.id]-d.min)/(d.max-d.min)*100;
+      return `<span class="attempt-dot" style="left:${pct}%"></span>`;
+    }).join("");
+  });
+}
+
+function lockCorrectSettings(values){
+  defs.forEach(d=>{
+    if(isSettingCorrect(d,values)) lockedSettings[d.id]=true;
+    const slider=document.getElementById(d.id);
+    const control=slider.closest(".control");
+    slider.disabled=!!lockedSettings[d.id];
+    control.classList.toggle("locked",!!lockedSettings[d.id]);
+  });
 }
 
 function updateAdjustmentFeedback(values){
@@ -366,10 +406,11 @@ function clearAdjustmentFeedback(){
 
 function resetGameState(){
   clearInterval(previewTimer);
-  tries=0;scores=[];bestScore=0;bestValues={...startingValues};
+  tries=0;scores=[];correctCounts=[];attemptValues=[];lockedSettings={};bestScore=0;bestCorrectCount=0;bestValues={...startingValues};
   targetVisible=false;gameOver=false;
   document.getElementById("attempt").textContent="1";
   document.getElementById("history").innerHTML="";
+  updateAttemptDots();
   document.getElementById("results").style.display="none";
   document.getElementById("submitBtn").disabled=true;
   document.getElementById("peekBtn").disabled=true;
@@ -381,7 +422,9 @@ function resetGameState(){
 
 
 function setControlsDisabled(disabled){
-  defs.forEach(d=>document.getElementById(d.id).disabled=disabled);
+  defs.forEach(d=>{
+    document.getElementById(d.id).disabled=disabled || !!lockedSettings[d.id];
+  });
   document.getElementById("resetBtn").disabled=disabled;
 }
 
@@ -486,14 +529,18 @@ function showResults(){
   setControlsDisabled(true);
   document.getElementById("peekBtn").disabled=true;
 
-  const winner=bestScore>=90;
-  const bestRating=ratingFromScore(bestScore);
-  document.getElementById("bestScore").textContent=(winner?"🏆 WINNER! ":"")+"Rating "+bestRating+"/10";
+  const correctCount=countCorrectSettings(bestValues);
+  const winner=correctCount>=5;
+  const bestRating=ratingFromCorrectCount(correctCount);
+  const title=winner
+    ? (correctCount===6?"🏆 PERFECT MATCH! ":"🏆 WINNER! ")
+    : (correctCount>=3?"SO CLOSE! ":"KEEP PRACTICING! ");
+  document.getElementById("bestScore").textContent=title+"Rating "+bestRating+"/10";
   const msg=document.getElementById("resultMessage");
   msg.className="result-message"+(winner?" winner":"");
   msg.textContent=winner
-    ? `You matched the target in ${tries} chance${tries===1?"":"s"}! Final edit and target are shown above.`
-    : "Five chances used. Your best edit and the target are shown above.";
+    ? `You matched ${correctCount} of 6 adjustments in ${tries} chance${tries===1?"":"s"}! Final edit and target are shown above.`
+    : `You matched ${correctCount} of 6 adjustments. Your best edit and the target are shown above.`;
   document.getElementById("rows").innerHTML=defs.map(d=>{
     const correct=isSettingCorrect(d,bestValues);
     return `<tr><td>${d.name}</td><td><span class="feedback-badge" style="background:${correct?"var(--green)":"var(--red)"}">${correct?"✓ Correct":"✕ Not Yet"}</span></td></tr>`;
@@ -529,7 +576,14 @@ document.getElementById("upload").addEventListener("change",e=>{
 });
 
 document.getElementById("startSandboxBtn").onclick=()=>startWithImage(selectedImageData);
-document.getElementById("resetBtn").onclick=()=>setValues(startingValues);
+document.getElementById("resetBtn").onclick=()=>{
+  const values=currentValues();
+  defs.forEach(d=>{
+    if(!lockedSettings[d.id]) values[d.id]=startingValues[d.id];
+  });
+  setValues(values);
+  lockCorrectSettings(values);
+};
 document.getElementById("peekBtn").onclick=()=>{
   if(targetVisible||tries>=5)return;
   tries++;
@@ -547,15 +601,26 @@ document.getElementById("submitBtn").onclick=()=>{
   if(tries>=5||targetVisible)return;
   const v=currentValues();
   const s=score(v);
+  const correctCount=countCorrectSettings(v);
   tries++;
   scores.push(s);
-  if(s>bestScore){bestScore=s;bestValues={...v}}
+  correctCounts.push(correctCount);
+  attemptValues.push({...v});
+  if(correctCount>bestCorrectCount || (correctCount===bestCorrectCount && s>bestScore)){
+    bestCorrectCount=correctCount;
+    bestScore=s;
+    bestValues={...v};
+  }
   updateHistory();
+  updateAttemptDots();
   updateAdjustmentFeedback(v);
-  const rating=ratingFromScore(s);
-  document.getElementById("status").textContent=s>=90?`Great match — rating ${rating}/10!`:`Rating ${rating}/10 — keep adjusting.`;
+  lockCorrectSettings(v);
+  const rating=ratingFromCorrectCount(correctCount);
+  document.getElementById("status").textContent=correctCount>=5
+    ? `${correctCount}/6 correct — winning match!`
+    : `${correctCount}/6 correct — rating ${rating}/10. Keep adjusting the unlocked sliders.`;
   document.getElementById("attempt").textContent=String(Math.min(tries+1,5));
-  if(s>=90||tries>=5)showResults();
+  if(correctCount>=5||tries>=5)showResults();
 };
 
 buildControls();
