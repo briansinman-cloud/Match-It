@@ -56,6 +56,10 @@ canvas{display:block;width:100%;aspect-ratio:1/1}
 .control{padding:9px 11px;background:var(--panel2);border-radius:11px}
 .control-head{display:flex;justify-content:space-between;font-size:13px;font-weight:800;text-transform:capitalize}
 .value{color:var(--yellow)}
+.setting-status{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:7px;border-radius:50%;font-size:16px;font-weight:950;vertical-align:middle}
+.setting-status.pending{background:#263b57;color:var(--muted)}
+.setting-status.correct{background:var(--green);color:#06130b}
+.setting-status.incorrect{background:var(--red);color:#fff}
 input[type=range]{display:block;width:100%;margin:8px 0 0;accent-color:var(--blue)}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
 .status{text-align:center;color:var(--muted);margin-top:9px;font-weight:800}
@@ -156,13 +160,12 @@ th{color:var(--muted)}
     <div id="results" class="card">
       <h2 id="bestScore">Rating 1/10</h2>
       <div id="resultMessage" class="result-message"></div>
-      <div class="feedback-key" aria-label="Rating color scale">
-        <strong>1 · Not Close</strong>
-        <div class="gradient-key"></div>
-        <strong>10 · Right On</strong>
+      <div class="feedback-key" aria-label="Adjustment result key">
+        <strong><span class="setting-status correct">✓</span> Correct</strong>
+        <strong><span class="setting-status incorrect">✕</span> Needs adjustment</strong>
       </div>
       <table>
-        <thead><tr><th>Setting</th><th>How Close?</th></tr></thead>
+        <thead><tr><th>Setting</th><th>Result</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
       <div class="actions">
@@ -240,7 +243,7 @@ function buildControls(){
   const wrap=document.getElementById("controls");
   wrap.innerHTML=defs.map(d=>`
     <label class="control">
-      <div class="control-head"><span>${d.name}</span><span id="${d.id}Value" class="value"></span></div>
+      <div class="control-head"><span>${d.name}</span><span><span id="${d.id}Value" class="value"></span><span id="${d.id}Status" class="setting-status pending" aria-label="Not checked yet">•</span></span></div>
       <input id="${d.id}" type="range" min="${d.min}" max="${d.max}" step="${d.step}">
     </label>`).join("");
   defs.forEach(d=>{
@@ -269,6 +272,31 @@ function currentValues(){
   const v={};
   defs.forEach(d=>v[d.id]=Number(document.getElementById(d.id).value));
   return v;
+}
+
+function isSettingCorrect(d,values){
+  const range=d.max-d.min;
+  const closeness=Math.max(0,1-Math.abs(values[d.id]-targetValues[d.id])/range)*100;
+  return closeness>=90;
+}
+
+function updateSettingChecks(values){
+  defs.forEach(d=>{
+    const badge=document.getElementById(d.id+"Status");
+    const correct=isSettingCorrect(d,values);
+    badge.className="setting-status "+(correct?"correct":"incorrect");
+    badge.textContent=correct?"✓":"✕";
+    badge.setAttribute("aria-label",correct?"Correct":"Needs adjustment");
+  });
+}
+
+function clearSettingChecks(){
+  defs.forEach(d=>{
+    const badge=document.getElementById(d.id+"Status");
+    badge.className="setting-status pending";
+    badge.textContent="•";
+    badge.setAttribute("aria-label","Not checked yet");
+  });
 }
 
 function fitDraw(ctx,img){
@@ -339,6 +367,7 @@ function resetGameState(){
   targetVisible=false;
   document.getElementById("attempt").textContent="1";
   document.getElementById("history").innerHTML="";
+  clearSettingChecks();
   document.getElementById("results").style.display="none";
   document.getElementById("submitBtn").disabled=true;
   document.getElementById("peekBtn").disabled=true;
@@ -359,7 +388,7 @@ function hideTarget(){
   document.getElementById("previewCountdown").textContent="";
 }
 
-function beginTargetPreview(seconds=8){
+function beginTargetPreview(seconds=5){
   clearInterval(previewTimer);
   targetVisible=true;
   setControlsDisabled(true);
@@ -419,7 +448,7 @@ function startWithImage(src){
     renderPlayer();renderTarget();
     document.getElementById("modeLabel").textContent=mode==="daily"?"Daily Challenge":"Sandbox Mode";
     showScreen("gameScreen");
-    beginTargetPreview(8);
+    beginTargetPreview(5);
   };
   gameImage.onerror=()=>alert("The game image could not be loaded.");
   gameImage.src=src;
@@ -435,14 +464,23 @@ function startDaily(){
   alert("No daily challenge file was found. Upload daily-challenge.js beside index.html.");
 }
 
-function settingFeedback(d){
-  const range=d.max-d.min;
-  const closeness=Math.max(0,1-Math.abs(bestValues[d.id]-targetValues[d.id])/range)*100;
-  const rating=ratingFromScore(closeness);
-  return {rating,color:ratingColor(rating)};
+function settingFeedback(d,values=bestValues){
+  return isSettingCorrect(d,values);
 }
 
 function showResults(){
+  clearInterval(previewTimer);
+  targetVisible=true;
+  document.getElementById("targetCard").classList.remove("hidden");
+  document.getElementById("previewCountdown").textContent="";
+  setControlsDisabled(true);
+  document.getElementById("peekBtn").disabled=true;
+
+  // End on the best progress image beside the permanently visible target.
+  setValues(bestValues);
+  renderTarget();
+  updateSettingChecks(bestValues);
+
   const winner=bestScore>=90;
   const bestRating=ratingFromScore(bestScore);
   document.getElementById("bestScore").textContent=(winner?"🏆 WINNER! ":"")+"Rating "+bestRating+"/10";
@@ -450,10 +488,10 @@ function showResults(){
   msg.className="result-message"+(winner?" winner":"");
   msg.textContent=winner
     ? `You matched the target in ${tries} chance${tries===1?"":"s"}!`
-    : "Five chances used. Try again and aim for a 9 or 10.";
+    : "Five chances used. Compare your best progress image with the target.";
   document.getElementById("rows").innerHTML=defs.map(d=>{
-    const feedback=settingFeedback(d);
-    return `<tr><td>${d.name}</td><td><span class="feedback-badge" style="background:${feedback.color}">${feedback.rating}/10</span></td></tr>`;
+    const correct=settingFeedback(d,bestValues);
+    return `<tr><td>${d.name}</td><td><span class="feedback-badge" style="background:${correct?"var(--green)":"var(--red)"};color:${correct?"#06130b":"#fff"}">${correct?"✓ Correct":"✕ Needs adjustment"}</span></td></tr>`;
   }).join("");
   document.getElementById("results").style.display="block";
   document.getElementById("submitBtn").disabled=true;
@@ -506,6 +544,7 @@ document.getElementById("submitBtn").onclick=()=>{
   tries++;
   scores.push(s);
   if(s>bestScore){bestScore=s;bestValues={...v}}
+  updateSettingChecks(v);
   updateHistory();
   const rating=ratingFromScore(s);
   document.getElementById("status").textContent=s>=90?`Great match — rating ${rating}/10!`:`Rating ${rating}/10 — keep adjusting.`;
